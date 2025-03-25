@@ -12,8 +12,9 @@
 #define D6 BIT4
 #define D7 BIT5
 
-#define RS BIT6
-#define E BIT7
+
+#define E BIT6
+#define RS BIT7
 
 // I2C definitions
 #define ADDRESS 0x01    // Address for microcontroller
@@ -26,12 +27,15 @@
 
 int patternIndex, periodIndex = 0;
 
-char patterns[8][20] = {
+char key[2] = "";
+
+char patternsArray[8][20] = {
     "static", "break", "up counter", "in and out", "down counter", "rotate 1 left", "rotate 7 left", "fill left"
 };
 
-char *key = "A";
-char *period = "0.25s";
+char periodsArray[6][10] = {
+    "0.25s", "0.50s", "0.75s", "1.00s", "1.25s", "1.50s"
+};
 
 void lcdPulseEnable(){
     // Pulses the enable pin so LCD knows to take next nibble.
@@ -69,16 +73,23 @@ void lcdSendData(char data){
 }
 
 void lcdPrintSentence(char *str){
+    // Takes a string and iterates character by character, sending that character to be written out, until \0 is reached.
     while(*str){
         lcdSendData(*str);
         str++;
     }
 }
 
+void lcdCursor(){
+    // Sets cursor properties (visible, blink)
+
+}
+
 void lcdClear(){
     // Clearing the screen is temperamental and requires a good delay, this is pretty arbitrary with a good safety margin.
     lcdSendCommand(0x01);   // Clear display
-    __delay_cycles(2000);   // Clear display needs some time
+    __delay_cycles(2000);   // Clear display needs some time, I'm aware __delay_cycles generally isn't advised
+    lcdCursor();
 }
 
 void lcdInit(){
@@ -87,7 +98,7 @@ void lcdInit(){
 
     PXOUT &= ~RS; // Explicitly set RS to 0 so we are in command mode
 
-    // We need to send the code 3h, 3 times, with some delay to actually wake it up.
+    // We need to send the code 3h, 3 times, to properly wake up the LCD screen
     lcdSendNibble(0x03);
     lcdSendNibble(0x03);
     lcdSendNibble(0x03);
@@ -104,13 +115,29 @@ void lcdInit(){
 }
 
 void lcdWrite(){
+    /*  Ultimately dictates what will be present on screen after an I2C transmission.
+        I2C should come in three bytes, patternIndex, periodIndex, and key.
+        patternIndex -> Integer value corresponding to a pattern in patternArray. Pattern 0 is static, so index 0 is static.
+        periodIndex -> Integer value corresponding to our set periods. Period 0 is 0.25s, the minimum.
+        key -> ASCII hex value for the key pressed.
+
+        When the master is locked, or there is no selected pattern, it should send the number 9, which will prevent a pattern
+        or period from being printed.
+
+        Key is different, if the system is locked then the master should simply send the value 0, which is blank on the LCD.
+        Otherwise, it should always send out the ASCII value for the key pressed.
+    */
     lcdClear(); // Clear Display
 
-    lcdSendCommand(0x80); // Set cursor to line 1 position 1
-    lcdPrintSentence(patterns[patternIndex]);
-    lcdSendCommand(0xC0); // Set cursor to line 2 position 1
-    lcdPrintSentence("period=");
-    lcdPrintSentence(period);
+    if(patternIndex < 8){ // If the I2C code is within patternIndex range
+        lcdSendCommand(0x80); // Set cursor to line 1 position 1
+        lcdPrintSentence(patternsArray[patternIndex]);
+
+        lcdSendCommand(0xC0); // Set cursor to line 2 position 1
+        lcdPrintSentence("period=");
+        lcdPrintSentence(periodsArray[periodIndex]);
+    }
+
     lcdSendCommand(0xCF); // Set cursor to line 2 position 16
     lcdPrintSentence(key);
 }
@@ -120,14 +147,8 @@ int main(void)
 	WDTCTL = WDTPW | WDTHOLD;	// stop watchdog timer
 	
 	//---------------- Configure LCD Ports ----------------
-	/* This code was initially written for our normal microcontroller just for ease of programming. "Port" is ambiguous,
-	as I use macros and #define statements so that I can easily change ports when I move this to the little microcontroller.
-	*/
-
-	// We want to use pins 0 - 3 for D4 - 7 and pins 4 and 5 for RS and E, respectively
 
 	// Configure Port for digital I/O
-
 	PXSEL0 &= 0x00;
 	PXSEL1 &= 0x00;
 
@@ -137,6 +158,7 @@ int main(void)
 	//---------------- End Configure Ports ----------------
 
     //---------------- Configure UCB0 I2C ----------------
+
 	// Configure P1.2 (SDA) and P1.3 (SCL) for I2C
 	P1SEL0 |= BIT2 | BIT3;
 	P1SEL1 &= ~(BIT2 | BIT3);
@@ -149,6 +171,7 @@ int main(void)
 	//---------------- End Configure UCB0 I2C ----------------
 
 	PM5CTL0 &= ~LOCKLPM5;       // Clear lock bit
+	__bis_SR_register(GIE);  // Enable global interrupts
 
 	lcdInit();
 
@@ -157,7 +180,7 @@ int main(void)
 	    /*lcdClear(); // Clear Display
 
 	    lcdSendCommand(0x80); // Set cursor to line 1 position 1
-	    lcdPrintSentence(patterns[patternIndex]);
+	    lcdPrintSentence(patternsArray[patternIndex]);
 	    lcdSendCommand(0xC0); // Set cursor to line 2 position 1
 	    lcdPrintSentence("period=");
 	    lcdPrintSentence(period);
@@ -189,17 +212,17 @@ int main(void)
 
 #pragma vector=USCI_B0_VECTOR
 __interrupt void USCI_B0_ISR(void) {
-    int byteCount = 0;
-    if(UCB0IV = 0x16){  // RXIFG0 Flag, RX buffer is full and can be processed
+    static int byteCount = 0;
+    if(UCB0IV == 0x16){  // RXIFG0 Flag, RX buffer is full and can be processed
         switch(byteCount){
             case 0:
-                patternIndex = atoi(UCB0RXBUF);
+                patternIndex = UCB0RXBUF;
                 break;
             case 1:
-                periodIndex = atoi(UCB0RXBUF);
+                periodIndex = UCB0RXBUF;
                 break;
             case 2:
-                *key = UCB0RXBUF;
+                key[0] = UCB0RXBUF;
                 break;
             default:
                 break;
