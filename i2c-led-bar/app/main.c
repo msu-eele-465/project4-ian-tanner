@@ -2,19 +2,20 @@
 #include <stdbool.h>
 #include <msp430.h> 
 
-unsigned int transition = 32768;
+//instantiate variables
+enum State = {pattern_0, pattern_1, pattern_2, patter_3, patter_4, pattern_5, patter_6, pattern_7, pattern_off};
+enum State state = pattern_0;
 int data_in = 0;
 int read_in = 0;
-int state = 0;
-int led_bar = 0;
-int step_0 = 0;
-int step_1 = 0;
-int step_2 = 0;
-int step_3 = 0;
-int step_4 = 0;
+int step_pattern_1 = 0;
+int step_pattern_3 = 0;
+int step_pattern_5 = 0;
+int step_pattern_6 = 0;
+int step_pattern_7 = 0;
+unsigned int counter_pattern_2 = 0;
+unsigned int counter_pattern_4 = 255;
+unsigned int transition = 32768;
 float trans_scalar = 0;
-unsigned char counter_1 = 0;
-unsigned char counter_2 = 255;
 
 int main(void)
 {
@@ -27,163 +28,152 @@ int main(void)
     P1OUT &= ~BIT4;
 
     //LED box
-    P1DIR |= BIT1;            //Config P1.2 (A) as output
-    P1OUT &= ~BIT1;           //A = 0 to start
+    P1DIR |= BIT1;           
+    P1OUT &= ~BIT1;           
 
-    P1DIR |= BIT0;            //Config P1.3 (B) as output
-    P1OUT &= ~BIT0;           //B = 0 to start
+    P1DIR |= BIT0;           
+    P1OUT &= ~BIT0;           
 
-    P2DIR |= BIT7;            //Config P1.1 (C) as output
-    P2OUT &= ~BIT7;           //C = 0 to start
+    P2DIR |= BIT7;            
+    P2OUT &= ~BIT7;           
 
-    P2DIR |= BIT6;            //Config P5.4 (D) as output
-    P2OUT &= ~BIT6;           //D = 0 to start
+    P2DIR |= BIT6;           
+    P2OUT &= ~BIT6;           
 
-    P2DIR |= BIT0;            //Config P4.5 (E) as output
-    P2OUT &= ~BIT0;           //E = 0 to start
+    P2DIR |= BIT0;          
+    P2OUT &= ~BIT0;          
 
-    P1DIR |= BIT7;            //Config P5.0 (F) as output
-    P1OUT &= ~BIT7;           //F = 0 to start
+    P1DIR |= BIT7;            
+    P1OUT &= ~BIT7;           
 
-    P1DIR |= BIT6;            //Config P5.2 (G) as output
-    P1OUT &= ~BIT6;           //G = 0 to start
+    P1DIR |= BIT6;            
+    P1OUT &= ~BIT6;           
 
-    P1DIR |= BIT5;            //Config P5.1 (H) as output
-    P1OUT &= ~BIT5;           //H = 0 to start
+    P1DIR |= BIT5;            
+    P1OUT &= ~BIT5;           
 
     //Configure Timers
-    TB0CTL |= TBCLR;          //clear timer3 and dividers
-    TB0CTL |= TBSSEL__ACLK;   //source = ACLK
-    TB0CTL |= MC__UP;         //mode = up
+    TB0CTL |= TBCLR;          
+    TB0CTL |= TBSSEL__ACLK;   
+    TB0CTL |= MC__UP;         
+    TB0CCR0 = transition;     
+
+    TB1CTL |= TBCLR;          
+    TB1CTL |= TBSSEL__ACLK;   
+    TB1CTL |= MC__UP;         
+    TB1CCR0 = 100;            
     
-    TB0CCR0 = transition;     //TB0CCR0 = 32768
+    //enable timer interrupts
+    TB0CCTL0 &= ~CCIFG;        
+    TB0CCTL0 |= CCIE;           
 
-    TB1CTL |= TBCLR;          //clear timer1 and dividers
-    TB1CTL |= TBSSEL__ACLK;   //source = ACLK
-    TB1CTL |= MC__UP;         //mode = up
-
-    TB1CCR0 = 100;            //TB2CCR0 = 500
-    
-    TB0CCTL0 &= ~CCIFG;         // Clear CCR0 interrupt flag
-    TB0CCTL0 |= CCIE;           // Enable interrupt vector for CCR0
-
-    TB1CCTL0 &= ~CCIFG;         // Clear CCR0 interrupt flag
-    TB1CCTL0 |= CCIE;           // Enable interrupt vector for CCR0
+    TB1CCTL0 &= ~CCIFG;         
+    TB1CCTL0 |= CCIE;           
 
     //---------------- Configure B0 for I2C ----------------
-    UCB0CTLW0 |= UCSWRST;     //put in SW RST
-    UCB0CTLW0 |= UCMODE_3;    //put into I2C mode   
-    UCB0CTLW0 &= ~UCMST;      //set as slave
-    UCB0CTLW0 &= ~UCTR;       //put into RX mode(read)
-    UCB0I2COA0 |= UCOAEN; 
-    UCB0I2COA0 |= ECGEN; 
-    UCB0I2COA0 = 0x48;        //set slave address LED_bar
+    UCB0CTLW0 |= UCSWRST;                
+	UCB0CTLW0 = UCSWRST;                 
+	UCB0CTLW0 |= UCMODE_3 | UCSYNC;      
+	UCB0I2COA0 = 0x48 | UCOAEN;       
+	UCB0CTLW0 &= ~UCSWRST;               
+	UCB0IE |= UCRXIE0;                   
 
-    UCB0CTLW1 |= UCASTP_2;    //auto STOP mode
-    UCB0TBCNT = 1;            //count = 1 byte
+    //Configure P1.2 (SDA) and P1.3 (SCL) for I2C
+	P1SEL0 |= BIT2 | BIT3;
+	P1SEL1 &= ~(BIT2 | BIT3);       
 
-    //---------------- Setup Ports(I2C) ---------------------
-    P1SEL1 &= ~BIT3;          //P1.3 = SCL
-    P1SEL0 |= BIT3; 
+    //enable global interrupts
+    __bis_SR_register(GIE);       
 
-    P1SEL1 &= ~BIT2;          //P1.2 = SDA
-    P1SEL0 |= BIT2;
+    //Disable low-power mode / GPIO high-impedance
+    PM5CTL0 &= ~LOCKLPM5;    
 
-    UCB0IE |= UCRXIE0;        //enable for RX0 IRQ
-
-    __enable_interrupt();       // Enable Global Interrupts
-
-    // Disable low-power mode / GPIO high-impedance
-    PM5CTL0 &= ~LOCKLPM5;
-
-    UCB0CTLW0 &= ~UCSWRST;    //take B0 out of SW RST
-
-    while(1) {
+    //loop forever
+    while(1)
+    {
 
     }
 
 	return 0;
 }
 
+//Timer B0 interrupt
 #pragma vector = TIMER0_B0_VECTOR
 __interrupt void ISR_TB0_CCR0(void)
 {
 
     switch (state)
-    {
+    {     
 
-        case 0:     // Locked state, jump down
+        case pattern_off:    
 
-        case 1:     // Unlocking state, jump down
-
-        case 2:     // Unlocked state, no LEDs on
-                    //LEDs
-                    P1OUT &= ~BIT1;           //A = 0 to start
-                    P1OUT &= ~BIT0;           //B = 0 to start
-                    P2OUT &= ~BIT7;           //C = 0 to start
-                    P2OUT &= ~BIT6;           //D = 0 to start
-                    P2OUT &= ~BIT0;           //E = 0 to start
-                    P1OUT &= ~BIT7;           //F = 0 to start
-                    P1OUT &= ~BIT6;           //G = 0 to start
-                    P1OUT &= ~BIT5;           //H = 0 to start
-                    break;
-        case 3:
-                    //LED pattern 0
-                    TB0CCR0 = transition;     //TB0CCR0 = base transition period
-
-                    P1OUT |=  BIT1;           //A = 1
-                    P1OUT &= ~BIT0;           //B = 0
-                    P2OUT |=  BIT7;           //C = 1
-                    P2OUT &= ~BIT6;           //D = 0
-                    P2OUT |=  BIT0;           //E = 1
-                    P1OUT &= ~BIT7;           //F = 0
-                    P1OUT |=  BIT6;           //G = 1
-                    P1OUT &= ~BIT5;           //H = 0
+                    P1OUT &= ~BIT1;          
+                    P1OUT &= ~BIT0;           
+                    P2OUT &= ~BIT7;           
+                    P2OUT &= ~BIT6;          
+                    P2OUT &= ~BIT0;          
+                    P1OUT &= ~BIT7;           
+                    P1OUT &= ~BIT6;          
+                    P1OUT &= ~BIT5;          
                     break;
 
-        case 4:
-                    //LED pattern 1
-                    TB0CCR0 = transition;     //TB0CCR0 = base transition period
+        case pattern_0:
+                    
+                    TB0CCR0 = transition;     
 
-                    if (step_0 == 0)
+                    P1OUT |=  BIT1;           
+                    P1OUT &= ~BIT0;           
+                    P2OUT |=  BIT7;           
+                    P2OUT &= ~BIT6;           
+                    P2OUT |=  BIT0;           
+                    P1OUT &= ~BIT7;          
+                    P1OUT |=  BIT6;           
+                    P1OUT &= ~BIT5;           
+                    break;
+
+        case pattern_1:
+                   
+                    TB0CCR0 = transition;    
+
+                    if (step_pattern_1 == 0)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT &= ~BIT5;       //H = 0
-                        step_0 = 1;
+                        P1OUT |=  BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT |=  BIT6;      
+                        P1OUT &= ~BIT5;       
+                        step_pattern_1++;
 
                     }
 
-                    else if (step_0 == 1)
+                    else if (step_pattern_1 == 1)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT |=  BIT5;       //H = 1
-                        step_0 = 0;
+                        P1OUT &= ~BIT1;      
+                        P1OUT |=  BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT |=  BIT5;       
+                        step_pattern_1--;
 
                     }
 
                     break;
 
-        case 5:
-                    //LED pattern 2
-                    trans_scalar = 2;                      //trans_scalar = 2
-                    TB0CCR0 = transition/trans_scalar;     //TB0CCR0 = base transition period / trans_scalar
+        case pattern_2:
 
-                    //Set A (bit 0 of the counter)
-                    if (counter_1 & 0x01)
+                    trans_scalar = 2;                     
+                    TB0CCR0 = transition/trans_scalar;     
+
+                    
+                    if (counter_pattern_2 & 0x01)
                     {
 
                         P1OUT |= BIT1;
@@ -197,8 +187,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set B (bit 1 of the counter)
-                    if (counter_1 & 0x02)
+                    
+                    if (counter_pattern_2 & 0x02)
                     {
 
                          P1OUT |= BIT0;
@@ -212,8 +202,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set C (bit 2 of the counter)
-                    if (counter_1 & 0x04)
+                   
+                    if (counter_pattern_2 & 0x04)
                     {
 
                         P2OUT |= BIT7;
@@ -227,8 +217,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set D (bit 3 of the counter)
-                    if (counter_1 & 0x08)
+                    
+                    if (counter_pattern_2 & 0x08)
                     {
 
                         P2OUT |= BIT6;
@@ -242,8 +232,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set E (bit 4 of the counter)
-                    if (counter_1 & 0x10)
+                    
+                    if (counter_pattern_2 & 0x10)
                     {
 
                         P2OUT |= BIT0;
@@ -257,8 +247,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                         }
 
-                    //Set F (bit 5 of the counter)
-                    if (counter_1 & 0x20)
+                    
+                    if (counter_pattern_2 & 0x20)
                     {
 
                         P1OUT |= BIT7;
@@ -272,8 +262,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set G (bit 6 of the counter)
-                    if (counter_1 & 0x40)
+                    
+                    if (counter_pattern_2 & 0x40)
                     {
 
                         P1OUT |= BIT6;
@@ -287,8 +277,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set H (bit 7 of the counter)
-                    if (counter_1 & 0x80)
+                    
+                    if (counter_pattern_2 & 0x80)
                     {
 
                         P1OUT |= BIT5;
@@ -302,114 +292,114 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    counter_1++;            //increment counter
+                    counter_pattern_2++;            
 
                     break;
 
-        case 6:
-                //LED pattern 3
-                trans_scalar = 2;                      //trans_scalar = 2
-                TB0CCR0 = transition/trans_scalar;     //TB0CCR0 = base transition period / trans_scalar
+        case pattern_3:
+        
+                trans_scalar = 2;                      
+                TB0CCR0 = transition/trans_scalar;     
 
-                if (step_1 == 0)
+                if (step_pattern_3 == 0)
                 {
 
-                    P1OUT &= ~BIT1;       //A = 0
-                    P1OUT &= ~BIT0;       //B = 0
-                    P2OUT &= ~BIT7;       //C = 0
-                    P2OUT |=  BIT6;       //D = 1
-                    P2OUT |=  BIT0;       //E = 1
-                    P1OUT &= ~BIT7;       //F = 0
-                    P1OUT &= ~BIT6;       //G = 0
-                    P1OUT &= ~BIT5;       //H = 0
+                    P1OUT &= ~BIT1;       
+                    P1OUT &= ~BIT0;       
+                    P2OUT &= ~BIT7;       
+                    P2OUT |=  BIT6;       
+                    P2OUT |=  BIT0;       
+                    P1OUT &= ~BIT7;       
+                    P1OUT &= ~BIT6;       
+                    P1OUT &= ~BIT5;      
 
-                    step_1 = 1;           //increment step_1
+                    step_pattern_3++;           
                 }
 
-                else if (step_1 == 1)
+                else if (step_pattern_3 == 1)
                 {
 
-                    P1OUT &= ~BIT1;       //A = 0
-                    P1OUT &= ~BIT0;       //B = 0
-                    P2OUT |=  BIT7;       //C = 1
-                    P2OUT &= ~BIT6;       //D = 0
-                    P2OUT &= ~BIT0;       //E = 0
-                    P1OUT |=  BIT7;       //F = 1
-                    P1OUT &= ~BIT6;       //G = 0
-                    P1OUT &= ~BIT5;       //H = 0
+                    P1OUT &= ~BIT1;       
+                    P1OUT &= ~BIT0;       
+                    P2OUT |=  BIT7;       
+                    P2OUT &= ~BIT6;       
+                    P2OUT &= ~BIT0;       
+                    P1OUT |=  BIT7;       
+                    P1OUT &= ~BIT6;       
+                    P1OUT &= ~BIT5;       
 
-                    step_1 = 2;           //increment step_1
+                    step_pattern_3++;           
                 }
 
-                else if (step_1 == 2)
+                else if (step_pattern_3 == 2)
                 {
 
-                    P1OUT &= ~BIT1;       //A = 0
-                    P1OUT |=  BIT0;       //B = 1
-                    P2OUT &= ~BIT7;       //C = 0
-                    P2OUT &= ~BIT6;       //D = 0
-                    P2OUT &= ~BIT0;       //E = 0
-                    P1OUT &= ~BIT7;       //F = 0
-                    P1OUT |=  BIT6;       //G = 1
-                    P1OUT &= ~BIT5;       //H = 0
+                    P1OUT &= ~BIT1;       
+                    P1OUT |=  BIT0;       
+                    P2OUT &= ~BIT7;       
+                    P2OUT &= ~BIT6;       
+                    P2OUT &= ~BIT0;       
+                    P1OUT &= ~BIT7;       
+                    P1OUT |=  BIT6;       
+                    P1OUT &= ~BIT5;       
 
-                    step_1 = 3;           //increment step_1
+                    step_pattern_3++;           
                 }
 
-                else if (step_1 == 3)
+                else if (step_pattern_3 == 3)
                 {
 
-                    P1OUT |=  BIT1;       //A = 1
-                    P1OUT &= ~BIT0;       //B = 0
-                    P2OUT &= ~BIT7;       //C = 0
-                    P2OUT &= ~BIT6;       //D = 0
-                    P2OUT &= ~BIT0;       //E = 0
-                    P1OUT &= ~BIT7;       //F = 0
-                    P1OUT &= ~BIT6;       //G = 0
-                    P1OUT |=  BIT5;       //H = 1
+                    P1OUT |=  BIT1;       
+                    P1OUT &= ~BIT0;       
+                    P2OUT &= ~BIT7;       
+                    P2OUT &= ~BIT6;       
+                    P2OUT &= ~BIT0;       
+                    P1OUT &= ~BIT7;       
+                    P1OUT &= ~BIT6;       
+                    P1OUT |=  BIT5;       
 
-                    step_1 = 4;           //increment step_1
+                    step_pattern_3++;           
                 }
 
-                else if (step_1 == 4)
+                else if (step_patter_3 == 4)
                 {
 
-                    P1OUT &= ~BIT1;       //A = 0
-                    P1OUT |=  BIT0;       //B = 1
-                    P2OUT &= ~BIT7;       //C = 0
-                    P2OUT &= ~BIT6;       //D = 0
-                    P2OUT &= ~BIT0;       //E = 0
-                    P1OUT &= ~BIT7;       //F = 0
-                    P1OUT |=  BIT6;       //G = 1
-                    P1OUT &= ~BIT5;       //H = 0
+                    P1OUT &= ~BIT1;       
+                    P1OUT |=  BIT0;       
+                    P2OUT &= ~BIT7;       
+                    P2OUT &= ~BIT6;       
+                    P2OUT &= ~BIT0;       
+                    P1OUT &= ~BIT7;      
+                    P1OUT |=  BIT6;       
+                    P1OUT &= ~BIT5;       
 
-                    step_1 = 5;           //increment step_1
+                    step_pattern_3++;
                 }
 
-                else if (step_1 == 5)
+                else if (step_pattern_3 == 5)
                 {
 
-                    P1OUT &= ~BIT1;       //A = 0
-                    P1OUT &= ~BIT0;       //B = 0
-                    P2OUT |=  BIT7;       //C = 1
-                    P2OUT &= ~BIT6;       //D = 0
-                    P2OUT &= ~BIT0;       //E = 0
-                    P1OUT |=  BIT7;       //F = 1
-                    P1OUT &= ~BIT6;       //G = 0
-                    P1OUT &= ~BIT5;       //H = 0
+                    P1OUT &= ~BIT1;       
+                    P1OUT &= ~BIT0;       
+                    P2OUT |=  BIT7;       
+                    P2OUT &= ~BIT6;       
+                    P2OUT &= ~BIT0;       
+                    P1OUT |=  BIT7;       
+                    P1OUT &= ~BIT6;       
+                    P1OUT &= ~BIT5;       
 
-                    step_1 = 0;           //repeat step_1
+                    step_pattern_3 = 0;
                 }
 
                 break;
 
-                case 7:
-                    //LED pattern 4
-                    trans_scalar = 4;                      //trans_scalar = 4
-                    TB0CCR0 = transition/trans_scalar;     //TB0CCR0 = base transition period / trans_scalar
+                case pattern_4:
+                    
+                    trans_scalar = 4;                      
+                    TB0CCR0 = transition/trans_scalar;     
 
-                    //Set A (bit 0 of the counter)
-                    if (counter_2 & 0x01)
+                    
+                    if (counter_pattern_4 & 0x01)
                     {
 
                         P1OUT |= BIT1;
@@ -423,8 +413,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set B (bit 1 of the counter)
-                    if (counter_2 & 0x02)
+                    
+                    if (counter_pattern_4 & 0x02)
                     {
 
                          P1OUT |= BIT0;
@@ -438,8 +428,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set C (bit 2 of the counter)
-                    if (counter_2 & 0x04)
+                    
+                    if (counter_pattern_4 & 0x04)
                     {
 
                         P2OUT |= BIT7;
@@ -453,8 +443,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set D (bit 3 of the counter)
-                    if (counter_2 & 0x08)
+                    
+                    if (counter_pattern_4 & 0x08)
                     {
 
                         P2OUT |= BIT6;
@@ -468,8 +458,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set E (bit 4 of the counter)
-                    if (counter_2 & 0x10)
+                    
+                    if (counter_pattern_4 & 0x10)
                     {
 
                         P2OUT |= BIT0;
@@ -483,8 +473,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                         }
 
-                    //Set F (bit 5 of the counter)
-                    if (counter_2 & 0x20)
+                    
+                    if (counter_pattern_4 & 0x20)
                     {
 
                         P1OUT |= BIT7;
@@ -498,8 +488,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set G (bit 6 of the counter)
-                    if (counter_2 & 0x40)
+                    
+                    if (counter_pattern_4 & 0x40)
                     {
 
                         P1OUT |= BIT6;
@@ -513,8 +503,8 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    //Set H (bit 7 of the counter)
-                    if (counter_2 & 0x80)
+                    
+                    if (counter_pattern_4 & 0x80)
                     {
 
                         P1OUT |= BIT5;
@@ -528,476 +518,541 @@ __interrupt void ISR_TB0_CCR0(void)
 
                     }
 
-                    counter_2--;            //decrement counter
+                    counter_pattern_4--;            
 
                     break;
 
-                case 8:
-                    //LED pattern 5
-                    trans_scalar = 1.5;                    //trans_scalar = 1.5
-                    TB0CCR0 = transition*trans_scalar;     //TB0CCR0 = base transition period * trans_scalar
+                case pattern_5:
+                    
+                    trans_scalar = 1.5;                    
+                    TB0CCR0 = transition*trans_scalar;     
 
-                    if (step_2 == 0)
+                    if (step_pattern_5 == 0)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;      
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 1;           //increment step_1
+                        step_pattern_5++;          
                     }
 
-                    else if (step_2 == 1)
+                    else if (step_pattern_5 == 1)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 2;           //increment step_1
+                        step_pattern_5++;
                     }
 
-                    else if (step_2 == 2)
+                    else if (step_pattern_5 == 2)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7:       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7:       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;      
 
-                        step_2 = 3;           //increment step_1
+                        step_pattern_5++;
                     }
 
-                    else if (step_2 == 3)
+                    else if (step_pattern_5 == 3)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 4;           //increment step_1
+                        step_pattern_5++;           
                     }
 
-                    else if (step_2 == 4)
+                    else if (step_pattern_5 == 4)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 5;           //increment step_1
+                        step_pattern_5++;
                     }
 
-                    else if (step_2 == 5)
+                    else if (step_pattern_5 == 5)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 6;           //repeat step_1
+                        step_pattern_5++;
                     }
 
-                    else if (step_2 == 6)
+                    else if (step_pattern_5 == 6)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;      
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;      
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_2 = 7;           //increment step_1
+                        step_pattern_5++;
                     }
 
-                    else if (step_2 == 7)
+                    else if (step_pattern_5 == 7)
                     {
 
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT |=  BIT5;       //H = 1
+                        P1OUT &= ~BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_2 = 0;           //repeat step_1
-                    }
-
-                    break;
-
-                case 9:
-                    //LED pattern 6
-                    trans_scalar = 2;                          //trans_scalar = 0.5
-                    TB0CCR0 = transition/trans_scalar;     //TB0CCR0 = base transition period / trans_scalar
-
-                    if (step_3 == 0)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT &= ~BIT5;       //H = 0
-
-                        step_3 = 1;           //increment step_1
-                    }
-
-                    else if (step_3 == 1)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 2;           //increment step_1
-                    }
-
-                    else if (step_3 == 2)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 3;           //increment step_1
-                    }
-
-                    else if (step_3 == 3)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 4;           //increment step_1
-                    }
-
-                    else if (step_3 == 4)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 5;           //increment step_1
-                    }
-
-                    else if (step_3 == 5)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 6;           //repeat step_1
-                    }
-
-                    else if (step_3 == 6)
-                    {
-
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 7;           //increment step_1
-                    }
-
-                    else if (step_3 == 7)
-                    {
-
-                        P1OUT &= ~BIT1;       //A = 0
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
-
-                        step_3 = 0;           //repeat step_1
+                        step_pattern_5 = 0;          
                     }
 
                     break;
 
-                case 10:
-                    //LED pattern 7
-                    TB0CCR0 = transition;     //TB0CCR0 = base transition period
+                case pattern_6:
+                
+                    trans_scalar = 2;                          
+                    TB0CCR0 = transition/trans_scalar;     
 
-                    if (step_4 == 0)
+                    if (step_pattern_6 == 0)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT &= ~BIT0;       //B = 0
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT &= ~BIT5;       
 
-                        step_4 = 1;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 1)
+                    else if (step_pattern_6 == 1)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT &= ~BIT7;       //C = 0
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;      
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT &= ~BIT6;      
+                        P1OUT |=  BIT5;      
 
-                        step_4 = 2;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 2)
+                    else if (step_pattern_6 == 2)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT &= ~BIT6;       //D = 0
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_4 = 3;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 3)
+                    else if (step_pattern_6 == 3)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT &= ~BIT0;       //E = 0
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_4 = 4;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 4)
+                    else if (step_pattern_6 == 4)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT &= ~BIT7;       //F = 0
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_4 = 5;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 5)
+                    else if (step_pattern_6 == 5)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT &= ~BIT6;       //G = 0
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_4 = 6;           //repeat step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 6)
+                    else if (step_pattern_6 == 6)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT &= ~BIT5;       //H = 0
+                        P1OUT |=  BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
 
-                        step_4 = 7;           //increment step_1
+                        step_pattern_6++;           
                     }
 
-                    else if (step_4 == 7)
+                    else if (step_pattern_6 == 7)
                     {
 
-                        P1OUT |=  BIT1;       //A = 1
-                        P1OUT |=  BIT0;       //B = 1
-                        P2OUT |=  BIT7;       //C = 1
-                        P2OUT |=  BIT6;       //D = 1
-                        P2OUT |=  BIT0;       //E = 1
-                        P1OUT |=  BIT7;       //F = 1
-                        P1OUT |=  BIT6;       //G = 1
-                        P1OUT |=  BIT5;       //H = 1
+                        P1OUT &= ~BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;      
 
-                        step_4 = 0;           //repeat step_1
+                        step_pattern_6 = 0;           
+                    }
+
+                    break;
+
+                case pattern_7:
+                    
+                    TB0CCR0 = transition;     
+
+                    if (step_pattern_7 == 0)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT &= ~BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;      
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;      
+
+                        step_pattern_7++;           
+                    }
+
+                    else if (step_pattern_7 == 1)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT &= ~BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;      
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;          
+                    }
+
+                    else if (step_pattern_7 == 2)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT &= ~BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;           
+                    }
+
+                    else if (step_pattern_7 == 3)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT &= ~BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;           
+                    }
+
+                    else if (step_pattern_7 == 4)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT &= ~BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;           
+                    }
+
+                    else if (step_pattern_7 == 5)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT &= ~BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;          
+                    }
+
+                    else if (step_pattern_7 == 6)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;       
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT &= ~BIT5;       
+
+                        step_pattern_7++;           
+                    }
+
+                    else if (step_pattern_7 == 7)
+                    {
+
+                        P1OUT |=  BIT1;       
+                        P1OUT |=  BIT0;      
+                        P2OUT |=  BIT7;       
+                        P2OUT |=  BIT6;       
+                        P2OUT |=  BIT0;       
+                        P1OUT |=  BIT7;       
+                        P1OUT |=  BIT6;       
+                        P1OUT |=  BIT5;       
+
+                        step_pattern_7 = 0;           
                     }
 
                     break;
 
     }
-
-    TB0CCTL0 &= ~CCIFG;          //clear CCR1 flag
+    //clear CCR1 flag
+    TB0CCTL0 &= ~CCIFG;          
 
 }
 
+//Timer B1 interrupt
 #pragma vector = TIMER1_B0_VECTOR
 __interrupt void ISR_TB1_CCR0(void)
 {
 
-    if (data == 0)           //not receiving mode
+    if (data_in == 0)           
     {
-        P1OUT &= ~BIT6; // Disable GREEN
-        P1OUT |= BIT7;  // Enable RED
+
+        P1OUT |= BIT7;  
+
     }
 
-    else if (data == 1)      //receiving mode
+    else if (data_in == 1)      
     {
+
         P1OUT &= ~BIT7;
-        P1OUT |= BIT5;
+        
     }
 
-    TB2CCTL0 &= ~CCIFG;          //clear CCR0 flag
+    TB1CCTL0 &= ~CCIFG;          //clear CCR0 flag
 
 }
-//---------------- END ISR_TB2_CCR0 ----------------
 
+//RX interrupt
 #pragma vector = EUSCI_B0_VECTOR
-__interrupt void ISR_I2C_B0(void){
+__interrupt void ISR_I2C_B0(void)
+{
     read_in = UCB0RXBUF;
-    if (read_in == 0x00){
-        state = 0;
+
+    switch (read_in)
+    {
+
+        case 0x01:
+
+            state = pattern_off;
+
+            break;
+
+        case 0x02:
+
+            transition -= 8192;
+
+            break;
+
+        case 0x03:
+
+            transition += 8192;
+
+            break;
+
+        case 0x04:
+
+            state = pattern_0;
+
+            break;    
+
+        case 0x05:
+
+            if (state == pattern_1)
+            {
+                
+                step_pattern_1 = 0;
+
+            }
+
+            state = pattern_1;
+
+            break;    
+
+        case 0x06:
+
+            if (state == pattern_2)
+            {
+
+                counter_pattern_2 = 0;
+
+            }
+
+            state = pattern_2;
+
+            break;
+
+        case 0x07:
+
+            if (state == pattern_3)
+            {
+
+                step_pattern_3 = 0;
+
+            }
+
+            state = pattern_3;
+
+            break;
+
+        case 0x08:
+
+            if (state == pattern_4){
+
+                counter_pattern_4 = 255;
+
+            }
+
+            state = pattern_4;
+
+            break;
+
+        case 0x09:
+
+            if (state == pattern_5){
+
+                step_pattern_5 = 0;
+
+            }
+
+            state = pattern_5;
+
+            break;
+
+        case 0x10:
+
+            if (state == pattern_6)
+            {
+
+                step_pattern_6 = 0;
+
+            }
+
+            state = pattern_6;
+
+            break;
+
+        case 0x11:
+
+            if (state == pattern_7)
+            {
+
+                step_pattern_7 = 0;
+
+            }
+
+            state = pattern_7;
+
+            break;
+      
     }
-    else if (read_in == 0x01){
-        transition -= 8192;
-    }
-    else if (read_in == 0x02){
-        transition += 8192;
-    }
-    else if (read_in == 0x03){
-        state = 2;
-    }
-    else if (read_in == 0x04){
-        state = 3;
-    }
-    else if (read_in == 0x05){
-        if (state == 4){
-            step_0 = 0;
-        }
-        state = 4;
-    }
-    else if (read_in == 0x06){
-        if (state == 5){
-            counter_1 = 0;
-        }
-        state = 5;
-    }
-    else if (read_in == 0x07){
-        if (state == 6){
-            step_1 = 0;
-        }
-        state = 6;
-    }
-    else if (read_in == 0x08){
-        if (state == 6){
-            counter_2 = 255;
-        }
-        state = 7;
-    }
-    else if (read_in == 0x09){
-        if (state == 8){
-            step_2 = 0;
-        }
-        state = 8;
-    }
-    else if (read_in == 0x10){
-        if (state == 9){
-            step_3 = 0;
-        }
-        state = 9;
-    }
-    else if (read_in == 0x11){
-        if (state == 10){
-            step_4 = 0;
-        }
-        state = 10;
-    }
-        
+
 }
