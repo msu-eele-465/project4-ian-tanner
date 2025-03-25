@@ -82,6 +82,21 @@ void lcdPrintSentence(char *str){
 
 void lcdCursor(){
     // Sets cursor properties (visible, blink)
+    static char cursorCommand = 0b00001100; // Basic command to interface with display (1000) and enable display (0100)
+    switch(key[0]){
+        case('C'):
+            cursorCommand ^= BIT1; // Toggle Cursor Enable/Disable bit
+            break;
+        case('9'):
+            cursorCommand ^= BIT0; // Toggle Blink Enable/Disable bit
+            break;
+        case('\0'):
+            cursorCommand = 0b00001100; // Hard reset cursor info
+            break;
+        default:
+            break;
+    }
+    lcdSendCommand(cursorCommand);
 
 }
 
@@ -89,7 +104,6 @@ void lcdClear(){
     // Clearing the screen is temperamental and requires a good delay, this is pretty arbitrary with a good safety margin.
     lcdSendCommand(0x01);   // Clear display
     __delay_cycles(2000);   // Clear display needs some time, I'm aware __delay_cycles generally isn't advised
-    lcdCursor();
 }
 
 void lcdInit(){
@@ -140,6 +154,9 @@ void lcdWrite(){
 
     lcdSendCommand(0xCF); // Set cursor to line 2 position 16
     lcdPrintSentence(key);
+    lcdCursor(); // Update cursor settings based on key info.
+
+    lcdSendCommand(0x80); // Return cursor to line 1 position 1
 }
 
 int main(void)
@@ -212,6 +229,10 @@ int main(void)
 
 #pragma vector=USCI_B0_VECTOR
 __interrupt void USCI_B0_ISR(void) {
+    /* The microcontroller expects three bytes to be transmitted from the master.
+     * These bytes are sequentially added to the patternIndex, periodIndex, and key values.
+     * These values are then processed by lcdWrite(), where more information can be found about their handling.
+     */
     static int byteCount = 0;
     if(UCB0IV == 0x16){  // RXIFG0 Flag, RX buffer is full and can be processed
         switch(byteCount){
@@ -230,7 +251,7 @@ __interrupt void USCI_B0_ISR(void) {
         byteCount++;
         if(byteCount >= 3){
             byteCount = 0;
+            lcdWrite();
         }
-        lcdWrite();
     }
 }
