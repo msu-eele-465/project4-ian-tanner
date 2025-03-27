@@ -1,4 +1,4 @@
-#include <msp430.h> 
+#include <msp430.h>
 
 
 /**
@@ -10,14 +10,14 @@
 #define TX_BYTES 3         // Number of bytes to transmit
 
 // I2C Data
-volatile int txIndex = 0;
-char txBuffer[TX_BYTES] = {4, 0, 0x39}; // Default locked buffer
+volatile int tx_index = 0;
+char tx_buffer[TX_BYTES] = {8, 3, 0}; // Default locked buffer
+char led_buffer = 0x00;
 
-void sendI2CData() {
-    txIndex = 0; // Reset buffer index
-
-    // Start condition, put master in transmit mode
-    UCB0CTLW0 |= UCTR | UCTXSTT;
+void send_I2C_data() {
+    tx_index = 0; // Reset buffer index
+    UCB0CTLW0 |= UCTR | UCTXSTT;  // Start condition, put master in transmit mode
+    UCB0IE |= UCTXIE0; // Enable TX interrupt
 }
 
 
@@ -42,14 +42,14 @@ char keyPad[][4] = {{'1', '2', '3', 'A'},  // Top Row
 
 int column, row = 0;
 
-char keyPressed = '\0';
+char key_pressed = '\0';
 
-char passCode[] = "2659";
-char inputCode[] = "0000";
+char pass_code[] = "2659";
+char input_code[] = "0000";
 
-int miliSecondsSurpassed = 0;
+int mili_seconds_surpassed = 0;
 
-int index = 0;  // Which index of the above inputCode array we're in
+int index = 0;  // Which index of the above input_code array we're in
 int state = 0;  // State 0: Locked, State 1: Unlocking, State 2: Unlocked
 int period = 0;
 
@@ -151,12 +151,10 @@ int main(void)
     UCB0IE |= UCTXIE0;
     //---------------- End Configure UCB0 I2C ----------------
 
-    sendI2CData();
+    send_I2C_data();
 
     __enable_interrupt();       // Enable Global Interrupts
     PM5CTL0 &= ~LOCKLPM5;       // Clear lock bit
-
-
 
     while(1) {}
 
@@ -174,12 +172,15 @@ __interrupt void ISR_TB0_SwitchColumn(void)
 {
 
     if(state == 1){ // If in unlocking state
-        if(miliSecondsSurpassed >= 5000){
+        if(mili_seconds_surpassed >= 5000){
             state = 0; // Set to lock state
-            index = 0; // Reset position on inputCode
-            miliSecondsSurpassed = 0; // Reset timeout counter
+            index = 0; // Reset position on input_code
+            mili_seconds_surpassed = 0; // Reset timeout counter
+            tx_buffer[0] = 8;
+            tx_buffer[2] = 0;
+            send_I2C_data();
         }else{
-            miliSecondsSurpassed++;
+            mili_seconds_surpassed++;
         }
     }
 
@@ -213,21 +214,24 @@ __interrupt void ISR_TB0_SwitchColumn(void)
             row = 0;
         }
 
-        keyPressed = keyPad[row][column];
+        key_pressed = keyPad[row][column];
+        tx_buffer[2] = key_pressed;
 
         switch(state){
 
             case 1: // If unlocking, we populate our input code with each pressed key
-                inputCode[index] = keyPressed; // Set the input code at index to what is pressed.
+                input_code[index] = key_pressed; // Set the input code at index to what is pressed.
 
                 if(index >= 3){ // If we've entered all four digits of input code:
                     index = 0;
                     state = 2; // Initially set state to free
-                    miliSecondsSurpassed = 0; // Stop lockout counter
+                    mili_seconds_surpassed = 0; // Stop lockout counter
                     int i;
-                    for(i = 0; i < 4; i++){ // Iterate through the passCode and inputCode
-                        if(inputCode[i] != passCode[i]){ // If an element in passCode and inputCode doesn't match
+                    for(i = 0; i < 4; i++){ // Iterate through the pass_code and input_code
+                        if(input_code[i] != pass_code[i]){ // If an element in pass_code and input_code doesn't match
                             state = 0;                   // Set state back to locked.
+                            tx_buffer[0] = 8;
+                            tx_buffer[2] = 0;
                             break;
                         }
                     }
@@ -238,40 +242,52 @@ __interrupt void ISR_TB0_SwitchColumn(void)
                 break;
 
             default:     // If unlocked, we check the individual key press.
-                switch(keyPressed){
+                switch(key_pressed){
                     case('D'):
                         state = 0; // Enter locked mode
+                        tx_buffer[0] = 8;
+                        tx_buffer[2] = 0;
                         transition = 82768;
                         break;
                     case('A'):
                         transition -= 8192; // Decrease transition by 8192
+                        tx_buffer[1]--;
                         break;
                     case('B'):
                         transition += 8192; // Increase 8192
+                        tx_buffer[1]++;
                         break;
                     case('0'):      // Pattern 0
                         state = 3;
+                        tx_buffer[0] = 0;
                         break;
                     case('1'):      // Pattern 1
                         state = 4;
+                        tx_buffer[0] = 1;
                         break;
                     case('2'):      // Pattern 2
                         state = 5;
+                        tx_buffer[0] = 2;
                         break;
                     case('3'):      // Pattern 3
                         state = 6;
+                        tx_buffer[0] = 3;
                         break;
                     case('4'):      // Pattern 4
                         state = 7;
+                        tx_buffer[0] = 4;
                         break;
                     case('5'):      // Pattern 5
                         state = 8;
+                        tx_buffer[0] = 5;
                         break;
                     case('6'):      // Pattern 6
                         state = 9;
+                        tx_buffer[0] = 6;
                         break;
                     case('7'):      // Pattern 7
                         state = 10;
+                        tx_buffer[0] = 7;
                         break;
                     default:
                         break;
@@ -280,7 +296,7 @@ __interrupt void ISR_TB0_SwitchColumn(void)
         }
 
         while(P3IN > 15){} // Wait until button is released
-
+        send_I2C_data();
     }
 
     if(P3IN < 16){ // Checks if pins 7 - 4 are on, that means a button is being held down; don't shift columns
@@ -461,11 +477,12 @@ __interrupt void ISR_TB2_CCR1(void){
 #pragma vector = USCI_B0_VECTOR
 __interrupt void USCI_B0_ISR(void) {
     if (UCB0IV == 0x18) { // TXIFG0 triggered
-        if (txIndex < TX_BYTES) {
-            UCB0TXBUF = txBuffer[txIndex++]; // Load next byte
-        } else {
-            UCB0CTLW0 |= UCTXSTP; // Send stop condition
-            UCB0IE &= ~UCTXIE0;    // Disable TX interrupt
+            if (tx_index < TX_BYTES) {
+                UCB0TXBUF = tx_buffer[tx_index++]; // Load next byte
+            } else {
+                UCB0CTLW0 |= UCTXSTP; // Send stop condition
+                UCB0IE &= ~UCTXIE0;   // Disable TX interrupt after completion
+                tx_index = 0;
+            }
         }
-    }
 }
