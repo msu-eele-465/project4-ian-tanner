@@ -12,7 +12,6 @@
 #define D6 BIT4
 #define D7 BIT5
 
-
 #define E BIT6
 #define RS BIT7
 
@@ -20,11 +19,7 @@
 #define ADDRESS 0x01    // Address for microcontroller
 #define RXBYTES 3       // How many bytes we anticipate reading
 
-
-/**
- * main.c
- */
-
+// LCD Variables
 int patternIndex, periodIndex = 0;
 
 char key[2] = "";
@@ -82,6 +77,9 @@ void lcdPrintSentence(char *str){
 
 void lcdCursor(){
     // Sets cursor properties (visible, blink)
+    // When the C key is pressed, the cursor is toggled.
+    // When 9 is pressed, the cursor blink is toggled.
+    // When NULL is sent, the cursor properties are reset, so both cursor and blink are disabled.
     static char cursorCommand = 0b00001100; // Basic command to interface with display (1000) and enable display (0100)
     switch(key[0]){
         case('C'):
@@ -97,13 +95,12 @@ void lcdCursor(){
             break;
     }
     lcdSendCommand(cursorCommand);
-
 }
 
 void lcdClear(){
     // Clearing the screen is temperamental and requires a good delay, this is pretty arbitrary with a good safety margin.
     lcdSendCommand(0x01);   // Clear display
-    __delay_cycles(2000);   // Clear display needs some time, I'm aware __delay_cycles generally isn't advised
+    __delay_cycles(2000);   // Clear display needs some time, I'm aware __delay_cycles generally isn't advised, but it works in this context
 }
 
 void lcdInit(){
@@ -135,7 +132,7 @@ void lcdWrite(){
         periodIndex -> Integer value corresponding to our set periods. Period 0 is 0.25s, the minimum.
         key -> ASCII hex value for the key pressed.
 
-        When the master is locked, or there is no selected pattern, it should send the number 9, which will prevent a pattern
+        When the master is locked, or there is no selected pattern, it should send a number >= 8, which will prevent a pattern
         or period from being printed.
 
         Key is different, if the system is locked then the master should simply send the value 0, which is blank on the LCD.
@@ -188,36 +185,12 @@ int main(void)
 	//---------------- End Configure UCB0 I2C ----------------
 
 	PM5CTL0 &= ~LOCKLPM5;       // Clear lock bit
-	__bis_SR_register(GIE);  // Enable global interrupts
+	__bis_SR_register(GIE);     // Enable global interrupts
 
 	lcdInit();
 
 	while(1){
 
-	    /*lcdClear(); // Clear Display
-
-	    lcdSendCommand(0x80); // Set cursor to line 1 position 1
-	    lcdPrintSentence(patternsArray[patternIndex]);
-	    lcdSendCommand(0xC0); // Set cursor to line 2 position 1
-	    lcdPrintSentence("period=");
-	    lcdPrintSentence(period);
-	    lcdSendCommand(0xCF); // Set cursor to line 2 position 16
-	    lcdPrintSentence(key);
-
-	    if(patternIndex >= 7){
-	        patternIndex = 0;
-	    }else{
-	        patternIndex++;
-	    }
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);
-	    __delay_cycles(60000);*/
 	}
 
 	return 0;
@@ -231,6 +204,7 @@ int main(void)
 __interrupt void USCI_B0_ISR(void) {
     /* The microcontroller expects three bytes to be transmitted from the master.
      * These bytes are sequentially added to the patternIndex, periodIndex, and key values.
+     *
      * These values are then processed by lcdWrite(), where more information can be found about their handling.
      */
     static int byteCount = 0;
