@@ -12,7 +12,10 @@
 // I2C Data
 volatile int tx_index = 0;
 char tx_buffer[TX_BYTES] = {8, 3, 0}; // Default locked buffer
-char led_buffer = 0x00;
+
+char led_buffer[11] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10, 0x11};
+
+volatile int led_index = 0;
 
 void send_I2C_data() {
     tx_index = 0; // Reset buffer index
@@ -20,13 +23,12 @@ void send_I2C_data() {
     UCB0IE |= UCTXIE0; // Enable TX interrupt
 }
 
-
-
-//0x04 = pattern 0
-//0x03 = increase
-//0x02 = decrease
-//0x01 = lock
-
+void send_led_i2c(){
+    led_index = 0;
+    UCB1CTLW0 |= UCTR | UCTXSTT;  // Start condition, put master in transmit mode
+    UCB1IE |= UCTXIE1; // Enable TX interrupt
+    
+}
 
 // Keypad data
 // 2D Array, each array is a row, each item is a column.
@@ -131,7 +133,8 @@ int main(void)
     // Configure P1.2 (SDA) and P1.3 (SCL) for I2C
     P1SEL0 |= BIT2 | BIT3;
     P1SEL1 &= ~(BIT2 | BIT3);
-
+    
+    
     // Put eUSCI_B0 into reset mode
     UCB0CTLW0 = UCSWRST;
 
@@ -150,8 +153,34 @@ int main(void)
     // Enable transmit interrupt
     UCB0IE |= UCTXIE0;
     //---------------- End Configure UCB0 I2C ----------------
+    
+    //---------------- Configure UCB1 I2C ----------------
+    
+    // Configure P4.6 (SDA) and P4.7 (SCL) for I2C
+    P4SEL0 |= BIT6 | BIT7;
+    P4SEL1 &= ~(BIT6 | BIT7);
+        
+    // Put eUSCI_B0 into reset mode
+    UCB1CTLW0 = UCSWRST;
+
+    // Set as I2C master, synchronous mode, SMCLK source
+    UCB1CTLW0 |= UCMODE_3 | UCMST | UCSYNC | UCSSEL_3;
+
+    // Manually adjusting baud rate to 100 kHz  (1MHz / 10 = 100 kHz)
+    UCB1BRW = 10;
+
+    // Set slave address
+    UCB1I2CSA = LCD_ADDRESS;
+
+    // Release reset state
+    UCB1CTLW0 &= ~UCSWRST;
+
+    // Enable transmit interrupt
+    UCB1IE |= UCTXIE1;
 
     send_I2C_data();
+    
+    send_led_i2c();
 
     __enable_interrupt();       // Enable Global Interrupts
     PM5CTL0 &= ~LOCKLPM5;       // Clear lock bit
@@ -248,46 +277,57 @@ __interrupt void ISR_TB0_SwitchColumn(void)
                         tx_buffer[0] = 8;
                         tx_buffer[2] = 0;
                         transition = 82768;
+                        led_index = 0;
                         break;
                     case('A'):
                         transition -= 8192; // Decrease transition by 8192
                         tx_buffer[1]--;
+                        led_index = 1;
                         break;
                     case('B'):
                         transition += 8192; // Increase 8192
                         tx_buffer[1]++;
+                        led_index = 2;
                         break;
                     case('0'):      // Pattern 0
                         state = 3;
                         tx_buffer[0] = 0;
+                        led_index = 3;
                         break;
                     case('1'):      // Pattern 1
                         state = 4;
                         tx_buffer[0] = 1;
+                        led_index = 4;
                         break;
                     case('2'):      // Pattern 2
                         state = 5;
                         tx_buffer[0] = 2;
+                        led_index = 5;
                         break;
                     case('3'):      // Pattern 3
                         state = 6;
                         tx_buffer[0] = 3;
+                        led_index = 6;
                         break;
                     case('4'):      // Pattern 4
                         state = 7;
                         tx_buffer[0] = 4;
+                        led_index = 7;
                         break;
                     case('5'):      // Pattern 5
                         state = 8;
                         tx_buffer[0] = 5;
+                        led_index = 8;
                         break;
                     case('6'):      // Pattern 6
                         state = 9;
                         tx_buffer[0] = 6;
+                        led_index = 9;
                         break;
                     case('7'):      // Pattern 7
                         state = 10;
                         tx_buffer[0] = 7;
+                        led_index = 10;
                         break;
                     default:
                         break;
@@ -297,6 +337,7 @@ __interrupt void ISR_TB0_SwitchColumn(void)
 
         while(P3IN > 15){} // Wait until button is released
         send_I2C_data();
+	send_led_i2c();
     }
 
     if(P3IN < 16){ // Checks if pins 7 - 4 are on, that means a button is being held down; don't shift columns
@@ -485,4 +526,15 @@ __interrupt void USCI_B0_ISR(void) {
                 tx_index = 0;
             }
         }
+}
+
+#pragma vector = USCI_B1_VECTOR
+__interrupt void USCI_B1_ISR(void) {
+    if (UCB1IV == 0x18) { // TXIFG0 triggered
+            
+                UCB1TXBUF = led_buffer[led_index]; 
+                UCB1CTLW0 |= UCTXSTP; // Send stop condition
+                UCB1IE &= ~UCTXIE1;   // Disable TX interrupt after completion
+                            
+       }
 }
